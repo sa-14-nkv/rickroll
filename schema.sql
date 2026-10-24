@@ -1,8 +1,8 @@
-CREATE TABLE IF NOT EXISTS prank_stats (
-  id SMALLINT PRIMARY KEY CHECK (id = 1),
-  clicks BIGINT NOT NULL DEFAULT 0
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ip_address TEXT,
+  country_code CHAR(2),
+  browser TEXT NOT NULL,
+  operating_system TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-INSERT INTO prank_stats (id, clicks)
-VALUES (1, 0)
-ON CONFLICT (id) DO NOTHING;

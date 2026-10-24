@@ -50,6 +50,22 @@
       h1 { margin: 0 0 12px; font-size: clamp(1.8rem, 6vw, 2.25rem); }
       p { margin: 0; color: #d1d5db; line-height: 1.6; }
 
+      .actions { display: grid; gap: 12px; margin-top: 28px; }
+      button {
+        width: 100%;
+        padding: 14px 20px;
+        border: 1px solid #6b7280;
+        border-radius: 12px;
+        background: transparent;
+        color: white;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button.primary { border-color: #8b5cf6; background: #8b5cf6; }
+      button:hover { filter: brightness(1.12); }
+      button:focus-visible { outline: 3px solid #c4b5fd; outline-offset: 3px; }
+      button:disabled { cursor: wait; opacity: 0.7; }
       #status { min-height: 1.5em; margin-top: 16px; color: #d1d5db; font-size: 0.9rem; }
       .privacy { margin-top: 20px; color: #9ca3af; font-size: 0.8rem; }
 
@@ -58,38 +74,29 @@
       }
     </style>
   </head>
-  <body>
-    <main>
-      <div class="mark" aria-hidden="true">↗</div>
-      <h1>A quick detour</h1>
-      <p>Taking you to the next stop…</p>
-      <p id="status" role="status" aria-live="polite"></p>
-      <p class="privacy">Only an aggregate click total is saved. No personal connection details are stored.</p>
-    </main>
-    <script>
-      const status = document.querySelector("#status");
+  
+<body>
+  <script>
+    (async () => {
       const redirectUrl = "https://youtu.be/dQw4w9WgXcQ";
 
-      async function redirect() {
-        try {
-          const response = await fetch("/api/redirect", {
-            method: "POST",
-            signal: AbortSignal.timeout(3000)
-          });
-          const result = await response.json();
-          if (!response.ok) {
-            throw new Error(result.error || "The click counter is unavailable.");
-          }
+      try {
+        const response = await fetch("/api/analytics", {
+          method: "POST"
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.redirectUrl) {
           window.location.replace(result.redirectUrl);
-        } catch (error) {
-          status.textContent = `${error.message} Redirecting anyway…`;
-          window.setTimeout(() => {
-            window.location.replace(redirectUrl);
-          }, 1000);
+          return;
         }
+      } catch (error) {
+        console.error("Error al guardar las analíticas:", error);
       }
 
-      redirect();
-    </script>
-  </body>
+      window.location.replace(redirectUrl);
+    })();
+  </script>
+</body>
 </html>
