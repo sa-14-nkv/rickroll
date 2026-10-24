@@ -1,5 +1,6 @@
 import express from "express";
 import { neon } from "@neondatabase/serverless";
+import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 
 const app = express();
@@ -25,8 +26,12 @@ async function recordAnalytics(request, response, next) {
   }
 
   try {
+    const ipAddress = request.ip || null;
+    const location = ipAddress && isPublicIp(ipAddress)
+      ? await lookupIp(ipAddress)
+      : null;
     const forwardedCountry = request.get("x-vercel-ip-country") || request.get("cf-ipcountry");
-    const country = forwardedCountry && /^[a-z]{2}$/i.test(forwardedCountry)
+    const proxyCountry = forwardedCountry && /^[a-z]{2}$/i.test(forwardedCountry)
       ? forwardedCountry.toUpperCase()
       : null;
     const userAgent = request.get("user-agent") || "";
@@ -45,10 +50,17 @@ async function recordAnalytics(request, response, next) {
 
     await deleteExpiredAnalytics();
     await sql`
-      INSERT INTO analytics_events (ip_address, country_code, browser, operating_system)
-      VALUES (${request.ip || null}, ${country}, ${browser}, ${operatingSystem})
+      INSERT INTO analytics_events (ip_address, country_code, city, isp, browser, operating_system)
+      VALUES (
+        ${ipAddress},
+        ${location?.countryCode || proxyCountry},
+        ${location?.city || null},
+        ${location?.isp || null},
+        ${browser},
+        ${operatingSystem}
+      )
     `;
-    response.json({ redirectUrl });
+    response.json({ redirectUrl, locationAvailable: Boolean(location) });
   } catch (error) {
     next(error);
   }
@@ -56,6 +68,58 @@ async function recordAnalytics(request, response, next) {
 
 app.post("/api/analytics", recordAnalytics);
 app.post("/api/analitycs", recordAnalytics);
+
+function isPublicIp(address) {
+  const version = isIP(address);
+  if (version === 4) {
+    const octets = address.split(".").map(Number);
+    const ipValue = octets.reduce((value, octet) => value * 256 + octet, 0);
+    const nonPublicRanges = [
+      [0x00000000, 8], [0x0a000000, 8], [0x64400000, 10],
+      [0x7f000000, 8], [0xa9fe0000, 16], [0xac100000, 12],
+      [0xc0000000, 24], [0xc0000200, 24], [0xc0586300, 24],
+      [0xc0a80000, 16], [0xc6120000, 15], [0xc6336400, 24],
+      [0xcb007100, 24], [0xe0000000, 4], [0xf0000000, 4]
+    ];
+    return !nonPublicRanges.some(([base, prefix]) => {
+      const blockSize = 2 ** (32 - prefix);
+      return Math.floor(ipValue / blockSize) === Math.floor(base / blockSize);
+    });
+  }
+  if (version === 6) {
+    const normalized = address.toLowerCase();
+    return normalized.startsWith("2") || normalized.startsWith("3");
+  }
+  return false;
+}
+
+async function lookupIp(ipAddress) {
+  try {
+    const url = `https://ipwho.is/${encodeURIComponent(ipAddress)}?fields=success,country_code,city,connection.isp`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) {
+      console.error(`IP geolocation provider returned HTTP ${response.status}.`);
+      return null;
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+      console.error("IP geolocation provider could not locate this address.");
+      return null;
+    }
+
+    return {
+      countryCode: typeof result.country_code === "string" && /^[a-z]{2}$/i.test(result.country_code)
+        ? result.country_code.toUpperCase()
+        : null,
+      city: typeof result.city === "string" ? result.city.slice(0, 120) : null,
+      isp: typeof result.connection?.isp === "string" ? result.connection.isp.slice(0, 200) : null
+    };
+  } catch (error) {
+    console.error("IP geolocation lookup failed:", error.message);
+    return null;
+  }
+}
 
 async function deleteExpiredAnalytics() {
   await sql`
@@ -81,11 +145,15 @@ async function start() {
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           ip_address TEXT,
           country_code CHAR(2),
+          city TEXT,
+          isp TEXT,
           browser TEXT NOT NULL,
           operating_system TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `;
+      await sql`ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS city TEXT`;
+      await sql`ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS isp TEXT`;
       await deleteExpiredAnalytics();
       setInterval(() => {
         deleteExpiredAnalytics().catch((error) => {
