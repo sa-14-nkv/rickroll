@@ -2,6 +2,7 @@ import express from "express";
 import { neon } from "@neondatabase/serverless";
 import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
+import { getClientIp } from "./client-ip.mjs";
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -26,7 +27,7 @@ async function recordAnalytics(request, response, next) {
   }
 
   try {
-    const ipAddress = request.ip || null;
+    const ipAddress = getClientIp(request);
     const location = ipAddress && isPublicIp(ipAddress)
       ? await lookupIp(ipAddress)
       : null;
@@ -34,6 +35,7 @@ async function recordAnalytics(request, response, next) {
     const proxyCountry = forwardedCountry && /^[a-z]{2}$/i.test(forwardedCountry)
       ? forwardedCountry.toUpperCase()
       : null;
+    const vercelCity = decodeHeader(request.get("x-vercel-ip-city"));
     const userAgent = request.get("user-agent") || "";
     const browser = /Edg\//.test(userAgent) ? "Edge"
       : /OPR\//.test(userAgent) ? "Opera"
@@ -54,13 +56,13 @@ async function recordAnalytics(request, response, next) {
       VALUES (
         ${ipAddress},
         ${location?.countryCode || proxyCountry},
-        ${location?.city || null},
+        ${vercelCity || location?.city || null},
         ${location?.isp || null},
         ${browser},
         ${operatingSystem}
       )
     `;
-    response.json({ redirectUrl, locationAvailable: Boolean(location) });
+    response.json({ redirectUrl, locationAvailable: Boolean(vercelCity || location?.city || location?.isp) });
   } catch (error) {
     next(error);
   }
@@ -68,6 +70,18 @@ async function recordAnalytics(request, response, next) {
 
 app.post("/api/analytics", recordAnalytics);
 app.post("/api/analitycs", recordAnalytics);
+
+function decodeHeader(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(value).slice(0, 120);
+  } catch {
+    return value.slice(0, 120);
+  }
+}
 
 function isPublicIp(address) {
   const version = isIP(address);
@@ -137,7 +151,7 @@ app.use((error, _request, response, _next) => {
 
 async function start() {
   if (!sql) {
-    console.error("DATABASE_URL is not configured. The redirect will work, but clicks will not be saved.");
+    console.error("DATABASE_URL is not configured. The redirect will work, but analytics will not be saved.");
   } else {
     try {
       await sql`
