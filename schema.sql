@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS prank_stats (
+  id SMALLINT PRIMARY KEY CHECK (id = 1),
+  clicks BIGINT NOT NULL DEFAULT 0
+);
+
+INSERT INTO prank_stats (id, clicks)
+VALUES (1, 0)
+ON CONFLICT (id) DO NOTHING;
