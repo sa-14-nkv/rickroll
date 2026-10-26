@@ -7,7 +7,7 @@ import { getClientIp } from "./client-ip.mjs";
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const publicDirectory = fileURLToPath(new URL("./public/", import.meta.url));
-const redirectUrl = "https://youtu.be/dQw4w9WgXcQ";
+const redirectUrl = "https://youtu.be/1zkqZoVJDxo";
 const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
 
 if (process.env.TRUST_PROXY_HOPS !== undefined) {
